@@ -1,120 +1,131 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import yfinance as yf
+import requests
 
-# Configuração visual adaptável para dispositivos móveis e desktops
-st.set_page_config(page_title="Diagrama do Cerrado Pro", layout="wide")
+# Ajuste visual de tela adaptável para smartphones e computadores
+st.set_page_config(page_title="Diagrama do Cerrado Real", layout="wide")
 
-st.title("🌱 Sistema Diagrama do Cerrado & Monitor de Carteira")
-st.write("Dados financeiros reais e cotações atualizadas em tempo real via Yahoo Finance.")
+st.title("🌱 Diagrama do Cerrado Automatizado (Dados do Fundamentus)")
+st.write("Dados fundamentalistas e cotações auditados em tempo real direto da base do Fundamentus.")
 
-# 1. PAINEL DE CONTROLE NA BARRA LATERAL
-st.sidebar.header("🎛️ Critérios de Rendimento")
+# 1. PAINEL DE CONTROLE DE ENTRADA (MENU LATERAL)
+st.sidebar.header("🎛️ Configurações de Rendimento")
 dy_slider = st.sidebar.slider("Dividend Yield (DY) Desejado (%)", min_value=0.0, max_value=15.0, value=6.0, step=0.5)
 dy_esperado = dy_slider / 100 if dy_slider > 0 else 0.001
 
 aporte_disponivel = st.sidebar.number_input("Valor do Aporte Mensal (R$)", min_value=0.0, value=2000.0)
 
-# 2. BANCO DE DADOS FUNDAMENTALISTA AUDITADO (Evita erros de conexões externas)
-# Múltiplos retirados diretamente dos últimos relatórios trimestrais consolidados das empresas
-dados_cvm = {
-    'BBAS3':  {'ROE': 21.1, 'Marg. Líq.': 15.1, 'Dív.Brut/Patrim.': 0.0, 'P/VP': 0.85, 'LPA': 5.80, 'Payout': 0.40},
-    'WEGE3':  {'ROE': 23.3, 'Marg. Líq.': 14.2, 'Dív.Brut/Patrim.': 0.1, 'P/VP': 4.80, 'LPA': 1.45, 'Payout': 0.50},
-    'TAEE11': {'ROE': 16.5, 'Marg. Líq.': 35.4, 'Dív.Brut/Patrim.': 1.4, 'P/VP': 1.65, 'LPA': 3.10, 'Payout': 0.85},
-    'VALE3':  {'ROE': 18.2, 'Marg. Líq.': 19.8, 'Dív.Brut/Patrim.': 0.6, 'P/VP': 1.40, 'LPA': 11.20, 'Payout': 0.50},
-    'ITUB4':  {'ROE': 20.2, 'Marg. Líq.': 14.8, 'Dív.Brut/Patrim.': 0.0, 'P/VP': 1.60, 'LPA': 3.40, 'Payout': 0.40},
-    'PETR4':  {'ROE': 24.5, 'Marg. Líq.': 20.1, 'Dív.Brut/Patrim.': 1.1, 'P/VP': 1.25, 'LPA': 8.90, 'Payout': 0.45},
-    'EGIE3':  {'ROE': 28.1, 'Marg. Líq.': 22.4, 'Dív.Brut/Patrim.': 1.5, 'P/VP': 3.90, 'LPA': 3.80, 'Payout': 0.55},
-    'SAPR11': {'ROE': 12.8, 'Marg. Líq.': 21.2, 'Dív.Brut/Patrim.': 0.8, 'P/VP': 0.80, 'LPA': 4.10, 'Payout': 0.50},
-    'TRPL4':  {'ROE': 13.5, 'Marg. Líq.': 31.0, 'Dív.Brut/Patrim.': 1.2, 'P/VP': 1.05, 'LPA': 2.90, 'Payout': 0.75},
-    'BBSE3':  {'ROE': 48.2, 'Marg. Líq.': 85.0, 'Dív.Brut/Patrim.': 0.0, 'P/VP': 6.20, 'LPA': 3.90, 'Payout': 0.85},
-    'VIVT3':  {'ROE': 7.5,  'Marg. Líq.': 11.2, 'Dív.Brut/Patrim.': 0.4, 'P/VP': 1.10, 'LPA': 3.10, 'Payout': 0.90},
-    'ABEV3':  {'ROE': 15.2, 'Marg. Líq.': 18.5, 'Dív.Brut/Patrim.': 0.0, 'P/VP': 2.10, 'LPA': 0.95, 'Payout': 0.60},
-    'MGLU3':  {'ROE': -4.5, 'Marg. Líq.': -1.2, 'Dív.Brut/Patrim.': 2.8, 'P/VP': 2.50, 'LPA': -0.40, 'Payout': 0.00}
-}
+# 2. CAPTURA PURA E DIRETA DE DADOS DO SITE FUNDAMENTUS
+@st.cache_data(ttl=1800) # Atualiza a tabela a cada 30 minutos de forma ultra rápida
+def puxar_base_fundamentus_pura():
+    url = "https://www.fundamentus.com.br/resultado.php"
+    # Cabeçalho que simula o Google Chrome para o site liberar o acesso sem travar
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
+    resposta = requests.get(url, headers=headers)
+    # Lê as tabelas HTML de texto puras injetadas no site do Fundamentus
+    tabelas = pd.read_html(resposta.text, decimal=',', thousands='.')
+    df = tabelas[0]
+    
+    # Padronização e limpeza de textos das colunas
+    df.columns = [c.strip() for c in df.columns]
+    df.set_index('Papel', inplace=True)
+    
+    # Tratamento de dados numéricos (Removendo símbolos de % e corrigindo pontos flutuantes)
+    colunas_ajustar = ['Div.Yield', 'Marg. Líq.', 'ROE', 'ROIC', 'Cres. Rec.5a']
+    for col in colunas_ajustar:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.replace('.', '', regex=False)
+            df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+            df[col] = df[col].astype(str).str.replace('%', '', regex=False).astype(float)
+            
+    return df
 
-df_base = pd.DataFrame.from_dict(dados_cvm, orient='index')
+try:
+    df_raw = puxar_base_fundamentus_pura()
+except Exception as e:
+    st.error(f"Não foi possível conectar à base de dados do Fundamentus. Erro técnico: {e}")
+    st.stop()
 
-# 3. CAPTURA DE COTAÇÕES EM TEMPO REAL VIA YAHOO FINANCE API
-@st.cache_data(ttl=600) # Atualiza os preços do mercado a cada 10 minutos automaticamente
-def atualizar_cotacoes_bolsa(lista_papeis):
-    precos = {}
-    for papel in lista_papeis:
-        try:
-            ticker = f"{papel}.SA"
-            dados_yahoo = yf.Ticker(ticker)
-            hist = dados_yahoo.history(period="2d")
-            if not hist.empty:
-                precos[papel] = float(hist['Close'].iloc[-1])
-            else:
-                precos[papel] = 10.0 # Valor genérico caso falhe temporariamente
-        except:
-            precos[papel] = 10.0
-    return precos
+# 3. CRUZAMENTO MATEMÁTICO: PERGUNTAS DO DIAGRAMA DO CERRADO
+df_analise = df_raw.copy()
 
-lista_papeis = list(df_base.index)
-dicionario_precos = atualizar_cotacoes_bolsa(lista_papeis)
-df_base['Cotação'] = df_base.index.map(dicionario_precos)
+# Cálculo das Notas Fundamentalistas (0 a 10) baseadas nas regras do Raul Sena
+df_analise['Nota Cerrado'] = 0.0
+df_analise['Nota Cerrado'] += np.where(df_analise['ROE'] >= 11.0, 2.5, 0.5)         # Pergunta 1: Lucro consistente?
+df_analise['Nota Cerrado'] += np.where(df_analise['Marg. Líq.'] >= 10.0, 2.5, 0.5)   # Pergunta 2: Margem segura?
+df_analise['Nota Cerrado'] += np.where(df_analise['Dív.Brut/ Patrim.'] <= 1.5, 2.5, 0.5) # Pergunta 3: Dívida sob controle?
+df_analise['Nota Cerrado'] += np.where(df_analise['P/VP'] <= 2.2, 2.5, 0.5)         # Pergunta 4: Preço aceitável?
 
-# 4. APLICAÇÃO DOS CRITÉRIOS DE PERGUNTAS DO DIAGRAMA DO CERRADO
-df_base['Nota Cerrado'] = 0.0
-df_base['Nota Cerrado'] += np.where(df_base['ROE'] >= 11.0, 2.5, 0.5)
-df_base['Nota Cerrado'] += np.where(df_base['Marg. Líq.'] >= 10.0, 2.5, 0.5)
-df_base['Nota Cerrado'] += np.where(df_base['Dív.Brut/Patrim.'] <= 1.5, 2.5, 0.5)
-df_base['Nota Cerrado'] += np.where(df_base['P/VP'] <= 2.2, 2.5, 0.5)
-df_base['Nota Cerrado'] = np.where(df_base['LPA'] <= 0, 0.0, df_base['Nota Cerrado']) # Prejuízo zera nota
+# Punição severa do Raul Sena: Se a empresa opera no prejuízo (P/L negativo), a nota zera
+df_analise['Nota Cerrado'] = np.where(df_analise['P/L'] <= 0, 0.0, df_analise['Nota Cerrado'])
 
-# VALUATION DE VALOR INTRÍNSECO PROJETIVO (GERAÇÃO DIVIDENDOS)
-df_base['DPA_Projetado'] = df_base['LPA'] * df_base['Payout']
-df_base['Preço Teto Projetivo'] = df_base['DPA_Projetado'] / dy_esperado
-df_base['Margem de Segurança (%)'] = ((df_base['Preço Teto Projetivo'] - df_base['Cotação']) / df_base['Preço Teto Projetivo']) * 100
+# VALUATION PROJETIVO (GERAÇÃO DIVIDENDOS DO LÉO)
+# Dividendo por Ação Projetado = (Cotação / P/L) * Payout Estimado Médio de 50%
+df_analise['DPA_Projetado'] = (df_analise['Cotação'] / df_analise['P/L']) * 0.50
+df_analise['Preço Teto Projetivo'] = df_analise['DPA_Projetado'] / dy_esperado
+df_analise['Margem de Segurança (%)'] = ((df_analise['Preço Teto Projetivo'] - df_analise['Cotação']) / df_analise['Preço Teto Projetivo']) * 100
 
-# 5. CONSTRUÇÃO INTERFÁCICA DAS ABAS
-tab1, tab2 = st.tabs(["🏆 Scanner de Melhores Opções", "💼 Minha Carteira Monitorada"])
+# 4. CRIAÇÃO DAS ABAS DE NAVEGAÇÃO DO USUÁRIO
+tab1, tab2 = st.tabs(["🏆 Scanner Geral da B3", "💼 Minha Carteira Pessoal"])
 
 with tab1:
-    st.subheader(f"Top Opções do Mercado Geral (Foco em Dividend Yield: {dy_slider}%)")
-    st.write("Filtro ordenado com base na maior margem de desconto patrimonial projetiva.")
+    st.subheader(f"Top 15 Ações com Maior Margem de Desconto (Alvo de DY: {dy_slider}%)")
+    st.write("Exibindo apenas empresas com volume de negociação diária real acima de R$ 500 mil para afastar riscos.")
     
-    # Ordena exibindo as melhores oportunidades primeiro
-    df_ranking = df_base.sort_values(by='Margem de Segurança (%)', ascending=False)
+    # Filtro de liquidez de mercado para afastar ações sem movimentação
+    df_liquidas = df_analise[df_analise['Liq.2meses'] > 500000].copy()
+    df_ranking = df_liquidas.sort_values(by='Margem de Segurança (%)', ascending=False).head(15)
     
     for pos, (empresa, linha) in enumerate(df_ranking.iterrows(), start=1):
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric(label=f"{pos}º Lugar - {empresa}", value=f"Nota Cerrado: {linha['Nota Cerrado']:.1f}/10")
+            st.metric(label=f"{pos}º Lugar - {empresa}", value=f"Nota: {linha['Nota Cerrado']:.1f}/10")
         with c2:
             st.write(f"**Preço Atual:** R$ {linha['Cotação']:.2f} | **Preço-Teto:** R$ {linha['Preço Teto Projetivo']:.2f}")
-            st.write(f"**ROE:** {linha['ROE']:.1f}% | **Margem Líquida:** {linha['Marg. Líq.']:.1f}%")
+            st.write(f"**P/L Real:** {linha['P/L']:.2f} | **ROE Real:** {linha['ROE']:.1f}%")
         with c3:
             if linha['Cotação'] < linha['Preço Teto Projetivo']:
-                st.success(f"🟢 OPORTUNIDADE: {linha['Margem de Segurança (%)']:.1f}% de Margem")
+                st.success(f"🟢 OPORTUNIDADE: {linha['Margem de Segurança (%)']:.1f}% de Desconto")
             else:
-                st.error(f"🔴 EXCEDEU O TETO: Está {-linha['Margem de Segurança (%)']:.1f}% acima")
+                st.error(f"🔴 ESTICADA: {-linha['Margem de Segurança (%)']:.1f}% acima do teto")
         st.divider()
 
 with tab2:
-    st.subheader("Gerenciador da Sua Carteira Pessoal")
-    st.write("Insira abaixo as ações que você possui na carteira para monitorar e calcular aportes automáticos:")
+    st.subheader("Painel Exclusivo da Sua Carteira")
+    st.write("Preencha o campo de texto com as suas ações. O aplicativo puxará os indicadores reais do Fundamentus de forma dedicada:")
     
-    carteira_usuario = st.text_input("Ações na sua Carteira (separe por vírgula):", value="BBAS3, WEGE3, TAEE11")
-    lista_usuario = [t.strip().upper() for t in carteira_usuario.split(",") if t.strip() != ""]
+    # Campo de texto interativo em branco para você digitar
+    carteira_usuario = st.text_input("Digite os códigos das suas ações (Ex: BBAS3, PETR4, VALE3):", value="")
     
-    if lista_usuario:
-        df_minha_carteira = df_base[df_base.index.isin(lista_usuario)].copy()
+    if carteira_usuario:
+        # Organiza os códigos removendo espaços invisíveis e forçando letras maiúsculas
+        lista_usuario = [ativo.strip().upper() for ativo in carteira_usuario.split(",") if ativo.strip() != ""]
+        
+        # Filtra a base do Fundamentus trazendo unicamente o que você escreveu
+        df_minha_carteira = df_analise[df_analise.index.isin(lista_usuario)].copy()
         
         if not df_minha_carteira.empty:
-            st.write("### Seus Ativos Monitorados:")
-            st.dataframe(df_minha_carteira[['Cotação', 'Preço Teto Projetivo', 'Margem de Segurança (%)', 'Nota Cerrado', 'ROE', 'Marg. Líq.']].style.format("{:.2f}"))
+            st.write("### 🗂️ Indicadores Fundamentais das Suas Ações:")
+            st.dataframe(df_minha_carteira[['Cotação', 'Preço Teto Projetivo', 'Margem de Segurança (%)', 'Nota Cerrado', 'P/L', 'ROE', 'Marg. Líq.']].style.format("{:.2f}"))
             
-            st.write("### 💰 Onde Aportar Hoje na sua Carteira:")
-            df_compras_carteira = df_minha_carteira[df_minha_carteira['Cotação'] < df_minha_carteira['Preço Teto Projetivo']].copy()
-            soma_pesos = df_compras_carteira['Nota Cerrado'].sum()
+            st.write("### 💰 Onde Aportar o Dinheiro do Mês:")
+            st.write("Abaixo, o algoritmo do Diagrama do Cerrado cruza as notas e direciona seu capital proporcionalmente apenas para os ativos que estão abaixo do preço-teto:")
+            
+            # Filtra na sua carteira o que está barato e recomendado para compra
+            df_oportunidades_carteira = df_minha_carteira[df_minha_carteira['Cotação'] < df_minha_carteira['Preço Teto Projetivo']].copy()
+            soma_pesos = df_oportunidades_carteira['Nota Cerrado'].sum()
             
             if soma_pesos > 0:
-                df_compras_carteira['Sugestão de Aporte (R$)'] = (df_compras_carteira['Nota Cerrado'] / soma_pesos) * aporte_disponivel
-                st.success("Cálculo do Diagrama do Cerrado executado com sucesso!")
-                st.dataframe(df_compras_carteira[['Cotação', 'Preço Teto Projetivo', 'Nota Cerrado', 'Sugestão de Aporte (R$)']].style.format({"Cotação": "R$ {:.2f}", "Preço Teto Projetivo": "R$ {:.2f}", "Nota Cerrado": "{:.1f}", "Sugestão de Aporte (R$)": "R$ {:.2f}"}))
+                df_oportunidades_carteira['Sugestão de Aporte (R$)'] = (df_oportunidades_carteira['Nota Cerrado'] / soma_pesos) * aporte_disponivel
+                st.success("Cálculo de Rebalanceamento Concluído!")
+                st.dataframe(df_oportunidades_carteira[['Cotação', 'Preço Teto Projetivo', 'Nota Cerrado', 'Sugestão de Aporte (R$)']].style.format({"Cotação": "R$ {:.2f}", "Preço Teto Projetivo": "R$ {:.2f}", "Nota Cerrado": "{:.1f}", "Sugestão de Aporte (R$)": "R$ {:.2f}"}))
             else:
-                st.warning("Nenhum ativo da sua carteira está em preço de compra vantajoso para este nível de Dividend Yield.")
+                st.warning("Nenhum ativo digitado da sua carteira está abaixo do preço-teto com este nível de Dividend Yield desejado.")
+        else:
+            st.info("Nenhum dos códigos digitados foi encontrado nos relatórios ativos da Bolsa.")
+    else:
+        st.info("💡 Digite os códigos das suas ações acima para ativar o monitoramento da sua carteira pessoal.")
