@@ -12,19 +12,20 @@ st.write("Dados extraídos com segurança utilizando a biblioteca oficial do Fun
 # 1. CAPTURA DOS DADOS UTILIZANDO A BIBLIOTECA OFICIAL
 @st.cache_data(ttl=3600) # Mantém na memória por 1 hora para carregar instantaneamente
 def carregar_dados_fundamentus_oficial():
-    # Coleta a tabela completa diretamente da API do portal Fundamentus
+    # Coleta a tabela completa diretamente do portal Fundamentus
     df = fundamentus.get_resultado()
     
-    # Tratamento de nomenclaturas para garantir a leitura perfeita do script
-    df.rename(columns={'dy': 'Div.Yield', 'mrgliq': 'Marg. Líq.', 'divbpat': 'Dív.Brut/ Patrim.', 'liq2meses': 'Liq.2meses'}, inplace=True)
-    
-    # Converte os percentuais decimais (ex: 0.12) para o formato padrão do investidor (12.0)
-    df['Div.Yield'] = df['Div.Yield'] * 100
-    df['Marg. Líq.'] = df['Marg. Líq.'] * 100
+    # MAPEAMENTO CORRETO DAS COLUNAS (Conforme documentação oficial da biblioteca)
+    df['Div.Yield'] = df['dy'] * 100
+    df['Marg. Líq.'] = df['mrgliq'] * 100
     df['ROE'] = df['roe'] * 100
+    df['ROIC'] = df['roic'] * 100
     df['P/L'] = df['pl']
     df['P/VP'] = df['pvp']
     df['Cotação'] = df['cotacao']
+    df['Dív.Brut/ Patrim.'] = df['divbpatr']
+    df['Liq.2meses'] = df['liq2m']
+    df['CAGR Lucro Proj (%)'] = df['c5y'] * 100  # Crescimento de receita/lucro dos últimos 5 anos
     
     return df
 
@@ -68,6 +69,7 @@ with tab1:
     st.subheader(f"Top 15 Melhores Ações do Mercado Geral (Foco em DY de {dy_slider}%)")
     st.write("Filtro executado sobre as empresas mais negociadas da Bolsa (Liq. > 500k/dia) para evitar distorções.")
     
+    # Filtra apenas empresas com volume real na bolsa
     df_liquidas = df_processado[df_processado['Liq.2meses'] > 500000].copy()
     df_ranking = df_liquidas.sort_values(by='Margem de Segurança (%)', ascending=False).head(15)
     
